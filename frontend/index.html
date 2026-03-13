@@ -1,294 +1,253 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Gallbladder AI Classifier</title>
-
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@300;400&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet"/>
-
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-
-:root{
---bg:#f5f2ee;
---white:#ffffff;
---surface:#faf9f7;
---border:#e2ddd8;
---border2:#ccc8c2;
---ink:#1a1714;
---ink2:#5a534c;
---ink3:#9b9189;
---accent:#c8472a;
---success:#2d7a4f;
---tag-bg:#f0ebe4;
---serif:'Fraunces',serif;
---mono:'DM Mono',monospace;
---sans:'Outfit',sans-serif;
---radius:14px;
---shadow:0 2px 12px rgba(26,23,20,0.07);
-}
-
-body{
-font-family:var(--sans);
-background:var(--bg);
-color:var(--ink);
-min-height:100vh;
-display:flex;
-flex-direction:column;
-}
-
-header{
-background:var(--white);
-border-bottom:1px solid var(--border);
-padding:0 48px;
-height:64px;
-display:flex;
-align-items:center;
-gap:16px;
-}
-
-.logo{
-display:flex;
-align-items:center;
-gap:10px;
-}
-
-.logo-icon{
-width:34px;height:34px;
-background:var(--ink);
-border-radius:9px;
-display:flex;
-align-items:center;
-justify-content:center;
-}
-
-.logo-text{
-font-family:var(--serif);
-font-size:1.1rem;
-}
-
-main{
-flex:1;
-max-width:1160px;
-margin:auto;
-width:100%;
-padding:48px 32px;
-display:grid;
-grid-template-columns:400px 1fr;
-gap:32px;
-}
-
-.card{
-background:var(--white);
-border:1px solid var(--border);
-border-radius:var(--radius);
-box-shadow:var(--shadow);
-}
-
-.card-header{
-padding:18px 24px;
-border-bottom:1px solid var(--border);
-font-family:var(--mono);
-font-size:10px;
-letter-spacing:.12em;
-text-transform:uppercase;
-color:var(--ink3);
-}
-
-.card-body{padding:24px;}
-
-#drop-zone{
-border:1.5px dashed var(--border2);
-border-radius:10px;
-padding:48px 20px;
-text-align:center;
-cursor:pointer;
-background:var(--surface);
-}
-
-#drop-zone input{
-position:absolute;
-opacity:0;
-}
-
-.drop-icon{
-font-size:32px;
-margin-bottom:12px;
-opacity:.5;
-}
-
-.drop-text{
-font-size:13px;
-color:var(--ink2);
-}
-
-#preview-wrap{display:none;}
-
-#preview-img{
-width:100%;
-border-radius:8px;
-max-height:260px;
-object-fit:cover;
-border:1px solid var(--border);
-}
-
-#run-btn{
-width:100%;
-margin-top:20px;
-padding:13px;
-background:var(--ink);
-color:#fff;
-border:none;
-border-radius:9px;
-font-size:14px;
-cursor:pointer;
-}
-
-.empty-state{
-padding:64px 32px;
-text-align:center;
-}
-
-.spinner{
-width:14px;height:14px;
-border:2px solid rgba(255,255,255,0.3);
-border-top-color:#fff;
-border-radius:50%;
-animation:spin .7s linear infinite;
-}
-
-@keyframes spin{to{transform:rotate(360deg)}}
-</style>
-</head>
-
-<body>
-
-<header>
-<div class="logo">
-<div class="logo-icon">🫀</div>
-<span class="logo-text">Gallbladder Classifier</span>
-</div>
-</header>
-
-<main>
-
-<div>
-<div class="card">
-<div class="card-header">Input</div>
-
-<div class="card-body">
-
-<div id="drop-zone">
-<input type="file" id="file-input" accept="image/*"/>
-<div class="drop-icon">⬆︎</div>
-<p class="drop-text">Drop an ultrasound image<br><strong>or click to browse</strong></p>
-</div>
-
-<div id="preview-wrap">
-<img id="preview-img"/>
-</div>
-
-<button id="run-btn" disabled>Analyse image</button>
-
-</div>
-</div>
-</div>
-
-<div>
-<div class="card">
-<div class="card-header">Results</div>
-
-<div class="card-body">
-
-<div class="empty-state" id="empty-state">
-🔬 Upload an ultrasound image and run inference
-</div>
-
-<div id="pred-block" style="display:none">
-<h2 id="pred-class"></h2>
-<div id="prob-bars"></div>
-</div>
-
-</div>
-</div>
-</div>
-
-</main>
-
 <script>
 
-const API_URL="https://noman2110014-gallbladder-classifier.hf.space";
+const API_URL = "https://noman2110014-gallbladder-classifier.hf.space";
 
-let selectedFile=null;
+let selectedFile = null;
 
-const dropZone=document.getElementById("drop-zone");
-const fileInput=document.getElementById("file-input");
-const previewWrap=document.getElementById("preview-wrap");
-const previewImg=document.getElementById("preview-img");
-const runBtn=document.getElementById("run-btn");
+const dropZone    = document.getElementById('drop-zone');
+const fileInput   = document.getElementById('file-input');
+const previewWrap = document.getElementById('preview-wrap');
+const previewImg  = document.getElementById('preview-img');
+const fileNameEl  = document.getElementById('file-name');
+const runBtn      = document.getElementById('run-btn');
 
-fileInput.addEventListener("change",e=>loadFile(e.target.files[0]));
 
-function loadFile(file){
-if(!file||!file.type.startsWith("image/"))return;
+// Check API status
+async function checkStatus() {
 
-selectedFile=file;
+  const apiUrl = API_URL;
 
-const reader=new FileReader();
+  try {
 
-reader.onload=e=>{
-previewImg.src=e.target.result;
-previewWrap.style.display="block";
-dropZone.style.display="none";
-runBtn.disabled=false;
-};
+    const res = await fetch(`${apiUrl}/`);
 
-reader.readAsDataURL(file);
+    if (res.ok) {
+
+      document.getElementById('status-dot').classList.add('online');
+      document.getElementById('status-label').textContent = 'online';
+
+    } else {
+
+      throw new Error();
+
+    }
+
+  } catch {
+
+    document.getElementById('status-dot').classList.remove('online');
+    document.getElementById('status-label').textContent = 'offline';
+
+  }
+
 }
 
-runBtn.addEventListener("click",async()=>{
+checkStatus();
 
-if(!selectedFile)return;
 
-runBtn.disabled=true;
-runBtn.innerHTML='<div class="spinner"></div> Analysing...';
+// File handling
+fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
 
-const formData=new FormData();
-formData.append("file",selectedFile);
+dropZone.addEventListener('dragover', e => {
 
-try{
-
-const res=await fetch(`${API_URL}/predict`,{
-method:"POST",
-body:formData
-});
-
-const data=await res.json();
-
-showResults(data);
-
-}catch(e){
-alert("Prediction failed");
-}
-
-runBtn.innerHTML="Analyse image";
-runBtn.disabled=false;
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
 
 });
 
-function showResults(data){
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 
-document.getElementById("empty-state").style.display="none";
+dropZone.addEventListener('drop', e => {
 
-document.getElementById("pred-block").style.display="block";
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  loadFile(e.dataTransfer.files[0]);
 
-document.getElementById("pred-class").textContent=data.prediction;
+});
+
+
+document.getElementById('clear-btn').addEventListener('click', () => {
+
+  selectedFile = null;
+
+  previewWrap.style.display = 'none';
+  dropZone.style.display = 'block';
+
+  fileInput.value = '';
+
+  runBtn.disabled = true;
+
+  clearResults();
+
+});
+
+
+function loadFile(file) {
+
+  if (!file || !file.type.startsWith('image/')) return;
+
+  selectedFile = file;
+
+  const reader = new FileReader();
+
+  reader.onload = e => {
+
+    previewImg.src = e.target.result;
+
+    previewWrap.style.display = 'block';
+    dropZone.style.display = 'none';
+
+    fileNameEl.textContent =
+      file.name + ' · ' + (file.size / 1024).toFixed(0) + ' KB';
+
+    runBtn.disabled = false;
+
+  };
+
+  reader.readAsDataURL(file);
+
+}
+
+
+// Inference
+runBtn.addEventListener('click', async () => {
+
+  if (!selectedFile) return;
+
+  const apiUrl = API_URL;
+
+  setLoading(true);
+  clearResults();
+
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+
+  try {
+
+    showStatus('info', 'Running GAN denoising + ViT classification…');
+
+    const res = await fetch(`${apiUrl}/predict`, {
+
+      method: 'POST',
+      body: formData
+
+    });
+
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+
+    showResults(await res.json());
+
+    hideStatus();
+    checkStatus();
+
+  }
+
+  catch (err) {
+
+    showStatus('error', err.message || 'Request failed — server issue');
+
+  }
+
+  finally {
+
+    setLoading(false);
+
+  }
+
+});
+
+
+function setLoading(on) {
+
+  runBtn.disabled = on;
+
+  runBtn.innerHTML = on
+    ? '<div class="spinner"></div> Analysing…'
+    : 'Analyse image';
+
+}
+
+
+function showStatus(type, msg) {
+
+  const el = document.getElementById('status');
+
+  el.className = type;
+  el.textContent = msg;
+
+}
+
+
+function hideStatus() {
+
+  const el = document.getElementById('status');
+
+  el.className = '';
+  el.style.display = 'none';
+
+}
+
+
+function clearResults() {
+
+  document.getElementById('empty-state').style.display = 'block';
+
+  document.getElementById('img-comparison').classList.remove('visible');
+  document.getElementById('pred-block').classList.remove('visible');
+
+  document.getElementById('prob-bars').innerHTML = '';
+
+}
+
+
+function showResults(data) {
+
+  document.getElementById('empty-state').style.display = 'none';
+
+  if (data.input_image && data.denoised_image) {
+
+    document.getElementById('input-out').src = data.input_image;
+    document.getElementById('denoised-out').src = data.denoised_image;
+
+    document.getElementById('img-comparison').classList.add('visible');
+
+  }
+
+  document.getElementById('pred-class').textContent = data.prediction;
+
+  document.getElementById('pred-block').classList.add('visible');
+
+
+  const container = document.getElementById('prob-bars');
+  container.innerHTML = '';
+
+  data.probabilities.forEach((item, i) => {
+
+    const pct = (item.probability * 100).toFixed(1);
+    const top = i === 0;
+
+    const row = document.createElement('div');
+
+    row.className = 'prob-row';
+    row.style.animationDelay = `${i * 45}ms`;
+
+    row.innerHTML = `
+      <div class="prob-name${top ? ' top' : ''}" title="${item.class}">
+      ${item.class}
+      </div>
+
+      <div class="prob-track">
+      <div class="prob-fill${top ? ' top' : ''}" style="width:${pct}%"></div>
+      </div>
+
+      <div class="prob-val${top ? ' top' : ''}">
+      ${pct}%
+      </div>
+    `;
+
+    container.appendChild(row);
+
+  });
 
 }
 
 </script>
-
-</body>
-</html>
