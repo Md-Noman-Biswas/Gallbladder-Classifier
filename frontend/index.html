@@ -1033,7 +1033,7 @@
       document.getElementById('attention-out').src = data.attention_overlay;
       const conf = (data.confidence * 100).toFixed(1);
       document.getElementById('xai-caption').textContent =
-        `Red and yellow regions indicate areas that most influenced the AI's prediction. Confidence: ${conf}%`;
+        `Red and yellow regions indicate areas that most influenced the AI's prediction.`;
       xaiToggle.style.display = 'flex';
     }
 
