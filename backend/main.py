@@ -1,11 +1,14 @@
 import os
 import io
+import re
 import base64
 import numpy as np
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import cv2
+from scipy.ndimage import gaussian_filter
 
 import tensorflow as tf
 from tensorflow.keras.models import load_model
@@ -91,9 +94,9 @@ classifier = load_model(CLF_PATH, custom_objects=CUSTOM_OBJECTS, compile=False)
 print("OK: Classifier loaded")
 
 # ──────────────────────────────────────────────────────────────
-# 4. CLASS NAMES  (sorted alphabetically - matches training)
+# 4. CLASS NAMES
 # ──────────────────────────────────────────────────────────────
-CLASS_NAMES = [
+CLASS_NAMES_RAW = [
     "1Gallstones",
     "2Abdomen and retroperitoneum",
     "3cholecystitis",
@@ -104,6 +107,13 @@ CLASS_NAMES = [
     "8Carcinoma",
     "9Various causes of gallbladder wall thickening",
 ]
+
+def clean_class_name(raw: str) -> str:
+    """Remove leading numeric prefix and ensure title-cased first letter."""
+    cleaned = re.sub(r'^\d+', '', raw).strip()
+    return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
+
+CLASS_NAMES_DISPLAY = [clean_class_name(c) for c in CLASS_NAMES_RAW]
 
 # ──────────────────────────────────────────────────────────────
 # 5. IMAGE HELPERS
@@ -121,8 +131,51 @@ def array_to_base64(arr: np.ndarray) -> str:
     img.save(buf, format="JPEG", quality=85)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
+def uint8_to_base64(arr: np.ndarray) -> str:
+    img = Image.fromarray(arr)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
 # ──────────────────────────────────────────────────────────────
-# 6. FASTAPI APP
+# 6. ATTENTION ROLLOUT (XAI)
+# ──────────────────────────────────────────────────────────────
+def compute_attention_rollout(denoised_arr: np.ndarray) -> str:
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    normalized   = (denoised_arr[np.newaxis] - mean) / std
+    pixel_values = tf.transpose(normalized, [0, 3, 1, 2])
+
+    outputs = vit_base_for_loading(
+        pixel_values=pixel_values,
+        training=False,
+        output_attentions=True
+    )
+
+    rollout = tf.eye(197, dtype=tf.float32)
+    for attn in outputs.attentions:
+        attn_avg = tf.reduce_mean(attn[0], axis=0)
+        attn_avg = attn_avg + tf.eye(197, dtype=tf.float32)
+        attn_avg = attn_avg / tf.reduce_sum(attn_avg, axis=-1, keepdims=True)
+        rollout  = tf.matmul(attn_avg, rollout)
+
+    cls_attention = rollout[0, 1:]
+    mask = tf.reshape(cls_attention, (14, 14)).numpy()
+
+    mask   = (mask - mask.min()) / (mask.max() - mask.min() + 1e-8)
+    smooth = cv2.resize(mask, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_CUBIC)
+    smooth = gaussian_filter(smooth, sigma=4)
+    smooth = (smooth - smooth.min()) / (smooth.max() - smooth.min() + 1e-8)
+
+    heatmap_color  = cv2.applyColorMap(np.uint8(255 * smooth), cv2.COLORMAP_JET)
+    heatmap_color  = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
+    original_uint8 = np.uint8(255 * np.clip(denoised_arr, 0, 1))
+    overlay        = cv2.addWeighted(original_uint8, 0.45, heatmap_color, 0.55, 0)
+
+    return uint8_to_base64(overlay)
+
+# ──────────────────────────────────────────────────────────────
+# 7. FASTAPI APP
 # ──────────────────────────────────────────────────────────────
 app = FastAPI(title="Gallbladder Classifier API", version="1.0.0")
 
@@ -139,7 +192,7 @@ def root():
 
 @app.get("/classes")
 def get_classes():
-    return {"classes": CLASS_NAMES}
+    return {"classes": CLASS_NAMES_DISPLAY}
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
@@ -158,20 +211,23 @@ async def predict(file: UploadFile = File(...)):
 
     probs      = classifier.predict(denoised_arr[np.newaxis, ...], verbose=0)[0]
     pred_idx   = int(np.argmax(probs))
-    pred_class = CLASS_NAMES[pred_idx]
+    pred_class = CLASS_NAMES_DISPLAY[pred_idx]
     confidence = float(probs[pred_idx])
 
     all_probs = [
-        {"class": CLASS_NAMES[i], "probability": float(probs[i])}
+        {"class": CLASS_NAMES_DISPLAY[i], "probability": float(probs[i])}
         for i in np.argsort(probs)[::-1]
     ]
 
+    attention_b64 = compute_attention_rollout(denoised_arr)
+
     return {
-        "prediction":     pred_class,
-        "confidence":     confidence,
-        "probabilities":  all_probs,
-        "input_image":    input_b64,
-        "denoised_image": denoised_b64,
+        "prediction":        pred_class,
+        "confidence":        confidence,
+        "probabilities":     all_probs,
+        "input_image":       input_b64,
+        "denoised_image":    denoised_b64,
+        "attention_overlay": attention_b64,
     }
 
 
