@@ -273,6 +273,58 @@
     }
     #run-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 
+    /* ── SAMPLE IMAGES ── */
+    #sample-row { margin-top: 20px; }
+
+    .sample-label {
+      display: block;
+      font-family: var(--mono);
+      font-size: 9px; text-transform: uppercase;
+      letter-spacing: 0.12em; color: var(--ink3);
+      margin-bottom: 10px;
+    }
+
+    .sample-thumbs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .sample-thumb {
+      display: flex; flex-direction: column;
+      align-items: stretch; gap: 6px;
+      padding: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.18s;
+      font-family: var(--sans);
+    }
+
+    .sample-thumb:hover {
+      border-color: var(--accent);
+      background: rgba(200,71,42,0.03);
+      transform: translateY(-1px);
+      box-shadow: 0 3px 12px rgba(26,23,20,0.08);
+    }
+
+    .sample-thumb:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    .sample-thumb img {
+      width: 100%; height: 64px;
+      object-fit: cover;
+      border-radius: 5px;
+      display: block;
+      background: var(--tag-bg);
+    }
+
+    .sample-thumb span {
+      font-size: 10.5px; font-weight: 400;
+      color: var(--ink2); line-height: 1.3;
+    }
+
     /* ── RESULTS ── */
     .results-card { position: sticky; top: 88px; }
 
@@ -360,8 +412,8 @@
     }
 
     #attention-out {
-      width: 100%; display: block;
-      max-height: 340px; object-fit: cover;
+      width: 100%; height: auto; display: block;
+      object-fit: contain;
     }
 
     .xai-caption {
@@ -622,6 +674,28 @@
 
         <button id="run-btn" disabled>Analyse image</button>
 
+        <div id="sample-row">
+          <span class="sample-label">Or try a sample</span>
+          <div class="sample-thumbs">
+            <button class="sample-thumb" type="button" data-file="Gallstones.jpg" data-label="Gallstones">
+              <img src="test/Gallstones.jpg" alt="Gallstones sample"/>
+              <span>Gallstones</span>
+            </button>
+            <button class="sample-thumb" type="button" data-file="cholecystitis.jpg" data-label="Cholecystitis">
+              <img src="test/cholecystitis.jpg" alt="Cholecystitis sample"/>
+              <span>Cholecystitis</span>
+            </button>
+            <button class="sample-thumb" type="button" data-file="Abdomen and retroperitoneum.jpg" data-label="Abdomen and retroperitoneum">
+              <img src="test/Abdomen%20and%20retroperitoneum.jpg" alt="Abdomen and retroperitoneum sample"/>
+              <span>Abdomen and retroperitoneum</span>
+            </button>
+            <button class="sample-thumb" type="button" data-file="Membranous and gangrenous cholecystitis.jpg" data-label="Membranous and gangrenous cholecystitis">
+              <img src="test/Membranous%20and%20gangrenous%20cholecystitis.jpg" alt="Membranous and gangrenous cholecystitis sample"/>
+              <span>Membranous &amp; gangrenous cholecystitis</span>
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -765,6 +839,27 @@
     };
     reader.readAsDataURL(file);
   }
+
+  // ── Sample images ────────────────────────────────────────────
+  // Fetch a bundled sample, wrap it as a real File, and run the
+  // exact same upload → predict flow as a manual upload.
+  async function loadSample(fileName) {
+    try {
+      showStatus('info', 'Loading sample image…');
+      const res  = await fetch('test/' + encodeURIComponent(fileName));
+      if (!res.ok) throw new Error(`Could not load sample (${res.status})`);
+      const blob = await res.blob();
+      const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+      loadFile(file);     // reuse existing preview/select logic; user clicks "Analyse image" to run
+      hideStatus();
+    } catch (err) {
+      showStatus('error', err.message || 'Could not load sample image.');
+    }
+  }
+
+  document.querySelectorAll('.sample-thumb').forEach(btn => {
+    btn.addEventListener('click', () => loadSample(btn.dataset.file));
+  });
 
   // ── Inference ────────────────────────────────────────────────
   runBtn.addEventListener('click', async () => {
